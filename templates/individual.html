@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Predicción Individual</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="topnav">
+                <div class="brand"><i class="fas fa-stethoscope"></i><span>DEMALE-HSJM</span></div>
+                <div class="nav-cta">
+                    <a href="{{ url_for('index') }}" class="btn btn-back" style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-arrow-left"></i> Volver a Inicio
+                    </a>
+                </div>
+            </div>
+            <div class="hero">
+                <h1><i class="fas fa-user-md"></i> Predicción Individual</h1>
+                <p class="subtitle">Completa las variables y pulsa Predecir</p>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div style="margin-bottom: 20px; text-align: left;">
+                <a href="{{ url_for('index') }}" class="btn btn-back" style="display: inline-flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-arrow-left"></i> Volver a Inicio
+                </a>
+            </div>
+            <div class="page-toolbar">
+                <label for="modelSelect">Modelo:</label>
+                <select id="modelSelect">
+                    <option value="logistic">Regresión Logística</option>
+                    <option value="nn">Red Neuronal</option>
+                </select>
+            </div>
+            <div class="info-notice" style="background: #fff5f5; padding: 16px 20px; border-radius: 8px; margin-bottom: 24px; border-left: 3px solid #d32f2f; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                <div style="display: flex; align-items: start; gap: 12px;">
+                    <i class="fas fa-exclamation-circle" style="color: #d32f2f; font-size: 1.1rem; margin-top: 2px;"></i>
+                    <div style="flex: 1;">
+                        <strong style="color: #c62828; display: block; margin-bottom: 6px; font-size: 0.95rem;">Campos Obligatorios</strong>
+                        <div style="color: #424242; font-size: 0.85rem; line-height: 1.6;">
+                            <div style="margin-bottom: 4px;"><strong style="color: #d32f2f;">CAMPOS OBLIGATORIOS:</strong> Demografía, Clínicos, Síntomas y Ocupación. <strong style="color: #757575;">Laboratorio:</strong> Los campos vacíos se interpretarán como 0.</div>
+                            <div style="margin-top: 8px; font-size: 0.8rem; color: #757575;">Los campos marcados con <span style="color: #d32f2f;">*</span> son obligatorios. Los campos de laboratorio sin completar se interpretarán automáticamente como 0.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <form id="predictionForm" class="prediction-form"></form>
+
+            <!-- Botón Predecir al final del formulario -->
+            <div id="predictButtonContainer" style="display: none; margin-top: 32px; margin-bottom: 32px; text-align: center; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <button id="predictBtn" class="btn btn-primary" style="padding: 16px 48px; font-size: 1.1rem; font-weight: 600;">
+                    <i class="fas fa-play-circle" style="margin-right: 8px;"></i> Predecir
+                </button>
+            </div>
+
+            <div id="resultCard" class="results-card" style="display:none; margin-top: 32px; scroll-margin-top: 20px;"></div>
+            
+            <!-- Advertencia de validación pequeña -->
+            <div id="validationAlert" class="validation-alert" style="display: none;">
+                <div class="validation-alert-content">
+                    <i class="fas fa-exclamation-triangle" style="color: #d32f2f; margin-right: 12px; font-size: 1.2rem;"></i>
+                    <div class="validation-alert-text">
+                        <strong>Campos obligatorios incompletos:</strong>
+                        <span id="validationAlertMessage"></span>
+                    </div>
+                    <button class="validation-alert-close" onclick="closeValidationAlert()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2025 Sistema de Predicción Médica</p>
+        </footer>
+    </div>
+
+    <script>
+    // Rangos de referencia por campo (aproximados clínicos)
+    const RANGOS = {
+        age: {min:0, max:120, unidad:'años'},
+        hospitalization_days: {min:0, max:60, unidad:'días'},
+        body_temperature: {min:36, max:37.5, unidad:'°C'},
+        hematocrit: {min:35, max:50, unidad:'%'},
+        hemoglobin: {min:12, max:17, unidad:'g/dL'},
+        red_blood_cells: {min:4, max:6, unidad:'mill/µL'},
+        white_blood_cells: {min:4, max:11, unidad:'mil/µL'},
+        neutrophils: {min:40, max:70, unidad:'%'},
+        eosinophils: {min:1, max:4, unidad:'%'},
+        basophils: {min:0, max:1, unidad:'%'},
+        monocytes: {min:2, max:8, unidad:'%'},
+        lymphocytes: {min:20, max:40, unidad:'%'},
+        platelets: {min:150, max:450, unidad:'mil/µL'},
+        AST: {min:0, max:40, unidad:'U/L'},
+        ALT: {min:0, max:40, unidad:'U/L'},
+        ALP: {min:44, max:147, unidad:'U/L'},
+        total_bilirubin: {min:0.1, max:1.2, unidad:'mg/dL'},
+        direct_bilirubin: {min:0.0, max:0.3, unidad:'mg/dL'},
+        indirect_bilirubin: {min:0.2, max:0.9, unidad:'mg/dL'},
+        total_proteins: {min:6.0, max:8.3, unidad:'g/dL'},
+        albumin: {min:3.5, max:5.0, unidad:'g/dL'},
+        creatinine: {min:0.6, max:1.3, unidad:'mg/dL'},
+        urea: {min:10, max:50, unidad:'mg/dL'}
+    };
+
+    // Mapeo completo de campos al español
+    const traducciones = {
+        'age': 'Edad',
+        'male': 'Masculino',
+        'female': 'Femenino',
+        'urban_origin': 'Origen urbano',
+        'rural_origin': 'Origen rural',
+        'homemaker': 'Ama de casa',
+        'student': 'Estudiante',
+        'professional': 'Profesional',
+        'merchant': 'Comerciante',
+        'agriculture_livestock': 'Agricultura/Ganadería',
+        'various_jobs': 'Trabajos diversos',
+        'unemployed': 'Desempleado',
+        'hospitalization_days': 'Días de hospitalización',
+        'body_temperature': 'Temperatura corporal',
+        'fever': 'Fiebre',
+        'headache': 'Dolor de cabeza',
+        'dizziness': 'Mareos',
+        'loss_of_appetite': 'Pérdida de apetito',
+        'weakness': 'Debilidad',
+        'myalgias': 'Dolores musculares',
+        'arthralgias': 'Dolores articulares',
+        'eye_pain': 'Dolor ocular',
+        'hemorrhages': 'Hemorragias',
+        'vomiting': 'Vómito',
+        'abdominal_pain': 'Dolor abdominal',
+        'chills': 'Escalofríos',
+        'edema': 'Edema',
+        'jaundice': 'Ictericia',
+        'bruises': 'Hematomas',
+        'petechiae': 'Petequias',
+        'rash': 'Erupciones cutáneas',
+        'diarrhea': 'Diarrea',
+        'respiratory_difficulty': 'Dificultad respiratoria',
+        'itching': 'Picazón',
+        'hematocrit': 'Hematocrito',
+        'hemoglobin': 'Hemoglobina',
+        'red_blood_cells': 'Glóbulos rojos',
+        'white_blood_cells': 'Glóbulos blancos',
+        'neutrophils': 'Neutrófilos',
+        'eosinophils': 'Eosinófilos',
+        'basophils': 'Basófilos',
+        'monocytes': 'Monocitos',
+        'lymphocytes': 'Linfocitos',
+        'platelets': 'Plaquetas',
+        'AST': 'AST (GOT)',
+        'ALT': 'ALT (GPT)',
+        'ALP': 'Fosfatasa alcalina',
+        'total_bilirubin': 'Bilirrubina total',
+        'direct_bilirubin': 'Bilirrubina directa',
+        'indirect_bilirubin': 'Bilirrubina indirecta',
+        'total_proteins': 'Proteínas totales',
+        'albumin': 'Albúmina',
+        'creatinine': 'Creatinina',
+        'urea': 'Urea'
+    };
+
+    function etiquetaCampo(nombre){
+        return traducciones[nombre] || nombre.replace(/_/g,' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+
+    function unidadCampo(nombre){
+        const r = RANGOS[nombre];
+        return r ? r.unidad : null;
+    }
+
+    function renderLabelHelp(fieldName){
+        const r = RANGOS[fieldName];
+        if (!r) return '';
+        const texto = `Rango típico: ${r.min} – ${r.max} ${r.unidad}`;
+        return `<span class="label-help" title="${texto}"><i class="fas fa-info-circle"></i></span>`;
+    }
+
+    function renderHint(fieldName){
+        const r = RANGOS[fieldName];
+        return r ? `<div class="field-hint">Rango típico: ${r.min} – ${r.max} ${r.unidad}</div>` : '';
+    }
+
+    function attachValidation(input, fieldName){
+        const r = RANGOS[fieldName];
+        if (!r) {
+            // Si no hay rango definido, asegurar mínimo de 0
+            input.min = 0;
+            input.step = 'any';
+        } else {
+            input.min = Math.max(0, r.min); // Asegurar que el mínimo sea al menos 0
+            input.max = r.max;
+            input.step = 'any';
+        }
+        
+        // Prevenir valores negativos mientras se escribe
+        input.addEventListener('keydown', (e) => {
+            // Permitir teclas de navegación y control
+            if (['Backspace', 'Delete', 'Tab', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+                return;
+            }
+            // Permitir Ctrl/Cmd + A, C, V, X
+            if ((e.ctrlKey || e.metaKey) && ['a', 'c', 'v', 'x'].includes(e.key.toLowerCase())) {
+                return;
+            }
+            // Si se presiona el signo menos, prevenir
+            if (e.key === '-' || e.key === 'e' || e.key === 'E') {
+                e.preventDefault();
+            }
+        });
+        
+        input.addEventListener('input', () => {
+            const val = parseFloat(input.value);
+            const msg = input.parentElement.querySelector('.field-msg');
+            // Reset estados visuales
+            input.classList.remove('input-ok','input-warning');
+            if (isNaN(val)) { msg.textContent=''; msg.className='field-msg'; return; }
+            
+            // Validar que no sea negativo
+            if (val < 0) {
+                input.value = 0; // Cambiar automáticamente a 0
+                msg.textContent = 'No se permiten valores negativos';
+                msg.className = 'field-msg field-warning';
+                input.classList.add('input-warning');
+                return;
+            }
+            
+            if (r) {
+                if (val < r.min || val > r.max) {
+                    msg.textContent = `Advertencia: fuera de rango (${r.min}–${r.max} ${r.unidad})`;
+                    msg.className = 'field-msg field-warning';
+                    input.classList.add('input-warning');
+                } else {
+                    msg.textContent = `Dentro del rango (${r.unidad})`;
+                    msg.className = 'field-msg field-ok';
+                    input.classList.add('input-ok');
+                }
+            }
+        });
+        
+        // Validar al perder el foco (blur)
+        input.addEventListener('blur', () => {
+            const val = parseFloat(input.value);
+            if (!isNaN(val) && val < 0) {
+                input.value = 0;
+            }
+        });
+    }
+
+    async function loadSchema(){
+        const res = await fetch("{{ url_for('schema') }}");
+        const data = await res.json();
+        const form = document.getElementById('predictionForm');
+        form.innerHTML = '';
+        // Definir qué secciones son obligatorias, importantes u opcionales
+        const seccionesConfig = {
+            'Demografía': { required: true, important: false, badge: 'OBLIGATORIO', color: '#d32f2f' },
+            'Clínicos': { required: true, important: false, badge: 'OBLIGATORIO', color: '#d32f2f' },
+            'Síntomas': { required: true, important: false, badge: 'OBLIGATORIO', color: '#d32f2f' },
+            'Laboratorio': { required: false, important: false, badge: '', color: '#757575' },
+            'Ocupación': { required: true, important: false, badge: 'OBLIGATORIO', color: '#d32f2f' }
+        };
+        
+        data.sections.forEach((sec, idx) => {
+            const section = document.createElement('section');
+            section.className = 'form-section';
+            const config = seccionesConfig[sec.name] || { required: false, badge: '', color: '' };
+            
+            // Iconos diferentes para cada sección
+            const icons = {
+                'Demografía': 'fa-users',
+                'Ocupación': 'fa-briefcase',
+                'Clínicos': 'fa-hospital',
+                'Síntomas': 'fa-stethoscope',
+                'Laboratorio': 'fa-flask'
+            };
+            const icon = icons[sec.name] || 'fa-clipboard-list';
+            
+            // Agregar badge de obligatorio/importante/opcional
+            const badgeHtml = config.badge ? 
+                `<span class="section-badge" style="background: ${config.color}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; margin-left: 8px;">${config.badge}</span>` : '';
+            
+            section.innerHTML = `<h3><i class=\"fas ${icon}\"></i> ${sec.name}${badgeHtml}</h3>`;
+            section.setAttribute('data-required', config.required);
+            if (config.important) {
+                section.setAttribute('data-important', 'true');
+            }
+            
+            const grid = document.createElement('div');
+            grid.className = 'form-grid';
+            sec.fields.forEach(f => {
+                const group = document.createElement('div');
+                group.className = 'form-group';
+                const isRequired = config.required;
+                const requiredAttr = isRequired ? 'required' : '';
+                const requiredStar = isRequired ? '<span style="color: #d32f2f; margin-left: 4px;">*</span>' : '';
+                
+                if (f.type === 'binary'){
+                    group.innerHTML = `
+                        <label>${etiquetaCampo(f.name)} ${requiredStar} ${renderLabelHelp(f.name)}</label>
+                        <label class="switch">
+                            <input type="checkbox" name="${f.name}" ${requiredAttr} />
+                            <span class="switch-slider"></span>
+                        </label>`;
+                } else {
+                    const unidad = unidadCampo(f.name);
+                    // Placeholders más médicos según el campo (valores realistas)
+                    const placeholders = {
+                        'age': 'Ej: 35',
+                        'hospitalization_days': 'Ej: 5',
+                        'body_temperature': 'Ej: 38.5',
+                        'hematocrit': 'Ej: 42.0',
+                        'hemoglobin': 'Ej: 14.5',
+                        'red_blood_cells': 'Ej: 4.5',
+                        'white_blood_cells': 'Ej: 7500',
+                        'neutrophils': 'Ej: 60.0',
+                        'eosinophils': 'Ej: 2.0',
+                        'basophils': 'Ej: 0.5',
+                        'monocytes': 'Ej: 5.0',
+                        'lymphocytes': 'Ej: 30.0',
+                        'platelets': 'Ej: 250000',
+                        'AST': 'Ej: 45',
+                        'ALT': 'Ej: 38',
+                        'ALP': 'Ej: 95',
+                        'total_bilirubin': 'Ej: 1.2',
+                        'direct_bilirubin': 'Ej: 0.3',
+                        'indirect_bilirubin': 'Ej: 0.9',
+                        'total_proteins': 'Ej: 7.2',
+                        'albumin': 'Ej: 4.5',
+                        'creatinine': 'Ej: 0.9',
+                        'urea': 'Ej: 25'
+                    };
+                    const placeholder = placeholders[f.name] || 'Ingrese valor';
+                    
+                    group.innerHTML = `
+                        <label>${etiquetaCampo(f.name)} ${requiredStar} ${renderLabelHelp(f.name)}</label>
+                        <div class="input-line">
+                            <input type="number" step="any" min="0" name="${f.name}" placeholder="${placeholder}" ${requiredAttr} />
+                            ${unidad ? `<span class="unit-badge">${unidad}</span>` : ''}
+                        </div>
+                        ${renderHint(f.name)}
+                        <div class="field-msg"></div>`;
+                }
+                grid.appendChild(group);
+                const input = group.querySelector('input[type="number"]');
+                if (input) {
+                    attachValidation(input, f.name);
+                    if (isRequired) {
+                        input.setAttribute('required', 'required');
+                    }
+                }
+                const checkbox = group.querySelector('input[type="checkbox"]');
+                if (checkbox) {
+                    if (isRequired) {
+                        checkbox.setAttribute('required', 'required');
+                    }
+                    
+                    // Agregar lógica de exclusión mutua
+                    checkbox.addEventListener('change', function() {
+                        if (this.checked) {
+                            // Género: male/female son mutuamente excluyentes
+                            if (f.name === 'male') {
+                                const femaleCheckbox = form.querySelector('input[name="female"]');
+                                if (femaleCheckbox) femaleCheckbox.checked = false;
+                            } else if (f.name === 'female') {
+                                const maleCheckbox = form.querySelector('input[name="male"]');
+                                if (maleCheckbox) maleCheckbox.checked = false;
+                            }
+                            
+                            // Origen: urban_origin/rural_origin son mutuamente excluyentes
+                            if (f.name === 'urban_origin') {
+                                const ruralCheckbox = form.querySelector('input[name="rural_origin"]');
+                                if (ruralCheckbox) ruralCheckbox.checked = false;
+                            } else if (f.name === 'rural_origin') {
+                                const urbanCheckbox = form.querySelector('input[name="urban_origin"]');
+                                if (urbanCheckbox) urbanCheckbox.checked = false;
+                            }
+                            
+                            // Ocupación: solo una opción puede estar seleccionada a la vez
+                            const ocupaciones = ['homemaker', 'student', 'professional', 'merchant', 
+                                                'agriculture_livestock', 'various_jobs', 'unemployed'];
+                            if (ocupaciones.includes(f.name)) {
+                                ocupaciones.forEach(ocup => {
+                                    if (ocup !== f.name) {
+                                        const otherCheckbox = form.querySelector(`input[name="${ocup}"]`);
+                                        if (otherCheckbox) otherCheckbox.checked = false;
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+            section.appendChild(grid);
+            form.appendChild(section);
+        });
+        
+        // Mostrar el botón Predecir al final del formulario
+        const predictContainer = document.getElementById('predictButtonContainer');
+        if (predictContainer) {
+            predictContainer.style.display = 'block';
+        }
+    }
+
+    async function predict(){
+        const model = document.getElementById('modelSelect').value;
+        const form = document.getElementById('predictionForm');
+        
+        // Validar campos obligatorios
+        const missingFields = [];
+        
+        // Validar DEMOGRAFÍA (obligatoria)
+        const edadInput = form.querySelector('input[name="age"]');
+        if (!edadInput || !edadInput.value || edadInput.value.trim() === '' || isNaN(parseFloat(edadInput.value))) {
+            missingFields.push('Edad es obligatoria (debe ser un número válido)');
+            if (edadInput) {
+                edadInput.style.borderColor = '#d32f2f';
+                edadInput.style.boxShadow = '0 0 0 3px rgba(211,47,47,0.1)';
+            }
+        } else {
+            const edad = parseFloat(edadInput.value);
+            if (edad < 0) {
+                missingFields.push('Edad no puede ser negativa');
+                if (edadInput) {
+                    edadInput.value = 0;
+                    edadInput.style.borderColor = '#d32f2f';
+                    edadInput.style.boxShadow = '0 0 0 3px rgba(211,47,47,0.1)';
+                }
+            } else if (edad > 120) {
+                missingFields.push('Edad debe estar entre 0 y 120 años');
+                if (edadInput) {
+                    edadInput.style.borderColor = '#d32f2f';
+                    edadInput.style.boxShadow = '0 0 0 3px rgba(211,47,47,0.1)';
+                }
+            } else {
+                edadInput.style.borderColor = '#bdbdbd';
+                edadInput.style.boxShadow = 'none';
+            }
+        }
+        
+        const male = form.querySelector('input[name="male"]');
+        const female = form.querySelector('input[name="female"]');
+        if (!male.checked && !female.checked) {
+            missingFields.push('Debe seleccionar el género (Masculino o Femenino)');
+        }
+        
+        const urban = form.querySelector('input[name="urban_origin"]');
+        const rural = form.querySelector('input[name="rural_origin"]');
+        if (!urban.checked && !rural.checked) {
+            missingFields.push('Debe seleccionar el origen (Urbano o Rural)');
+        }
+        
+        // Validar CLÍNICOS (obligatorios)
+        const hospDays = form.querySelector('input[name="hospitalization_days"]');
+        if (!hospDays || !hospDays.value || hospDays.value.trim() === '' || isNaN(parseFloat(hospDays.value))) {
+            missingFields.push('Días de hospitalización es obligatorio (debe ser un número válido)');
+            if (hospDays) {
+                hospDays.style.borderColor = '#d32f2f';
+                hospDays.style.boxShadow = '0 0 0 3px rgba(211,47,47,0.1)';
+            }
+        } else {
+            const hospDaysValue = parseFloat(hospDays.value);
+            if (hospDaysValue < 0) {
+                hospDays.value = 0;
+                hospDays.style.borderColor = '#d32f2f';
+                hospDays.style.boxShadow = '0 0 0 3px rgba(211,47,47,0.1)';
+            } else {
+                hospDays.style.borderColor = '#bdbdbd';
+                hospDays.style.boxShadow = 'none';
+            }
+        }
+        
+        const temp = form.querySelector('input[name="body_temperature"]');
+        if (!temp || !temp.value || temp.value.trim() === '' || isNaN(parseFloat(temp.value))) {
+            missingFields.push('Temperatura corporal es obligatoria (debe ser un número válido)');
+            if (temp) {
+                temp.style.borderColor = '#d32f2f';
+                temp.style.boxShadow = '0 0 0 3px rgba(211,47,47,0.1)';
+            }
+        } else {
+            const tempValue = parseFloat(temp.value);
+            if (tempValue < 0) {
+                missingFields.push('Temperatura corporal no puede ser negativa');
+                if (temp) {
+                    temp.value = 0;
+                    temp.style.borderColor = '#d32f2f';
+                    temp.style.boxShadow = '0 0 0 3px rgba(211,47,47,0.1)';
+                }
+            } else if (tempValue < 35 || tempValue > 42) {
+                missingFields.push('Temperatura corporal debe estar entre 35°C y 42°C');
+                if (temp) {
+                    temp.style.borderColor = '#d32f2f';
+                    temp.style.boxShadow = '0 0 0 3px rgba(211,47,47,0.1)';
+                }
+            } else {
+                temp.style.borderColor = '#bdbdbd';
+                temp.style.boxShadow = 'none';
+            }
+        }
+        
+        // Validar SÍNTOMAS (obligatorio - al menos uno)
+        const sintomasSection = Array.from(form.querySelectorAll('section')).find(s => 
+            s.querySelector('h3').textContent.includes('Síntomas')
+        );
+        if (sintomasSection) {
+            const sintomasCheckboxes = sintomasSection.querySelectorAll('input[type="checkbox"]');
+            const algunSintoma = Array.from(sintomasCheckboxes).some(cb => cb.checked);
+            if (!algunSintoma) {
+                missingFields.push('Debe seleccionar al menos un síntoma');
+            }
+        }
+        
+        // Validar LABORATORIO (OPCIONAL - si está vacío se asume 0 automáticamente)
+        const laboratorioFields = [
+            'hematocrit', 'hemoglobin', 'red_blood_cells', 'white_blood_cells',
+            'neutrophils', 'eosinophils', 'basophils', 'monocytes', 'lymphocytes', 'platelets',
+            'AST', 'ALT', 'ALP', 'total_bilirubin', 'direct_bilirubin', 'indirect_bilirubin',
+            'total_proteins', 'albumin', 'creatinine', 'urea'
+        ];
+        
+        // Primero, establecer automáticamente 0 en todos los campos vacíos (sin mostrar errores)
+        laboratorioFields.forEach(fieldName => {
+            const input = form.querySelector(`input[name="${fieldName}"]`);
+            if (!input) return;
+            
+            // Si el campo está vacío o solo tiene espacios, establecer automáticamente 0
+            if (!input.value || input.value.trim() === '') {
+                input.value = '0';
+                input.style.borderColor = '#bdbdbd';
+                input.style.boxShadow = 'none';
+            }
+        });
+        
+        // Luego, validar solo los campos que tienen valores (no vacíos)
+        laboratorioFields.forEach(fieldName => {
+            const input = form.querySelector(`input[name="${fieldName}"]`);
+            if (!input) return;
+            
+            // Ya sabemos que el campo no está vacío (fue establecido a 0 arriba si lo estaba)
+            const value = parseFloat(input.value);
+            
+            // Validar que sea un número válido (aunque sea 0, debe ser válido)
+            if (isNaN(value)) {
+                // Si después de establecer 0 todavía no es válido, hay un problema
+                input.value = '0';
+                input.style.borderColor = '#bdbdbd';
+                input.style.boxShadow = 'none';
+            } else if (value < 0) {
+                // Si por alguna razón es negativo, corregir a 0
+                input.value = '0';
+                input.style.borderColor = '#bdbdbd';
+                input.style.boxShadow = 'none';
+            } else if (RANGOS[fieldName] && value > 0) {
+                // Solo validar rango si el valor es mayor que 0
+                const rango = RANGOS[fieldName];
+                if (value < rango.min || value > rango.max) {
+                    // Mostrar advertencia visual pero permitir continuar
+                    input.style.borderColor = '#ff9800';
+                    input.style.boxShadow = '0 0 0 3px rgba(255,152,0,0.1)';
+                } else {
+                    input.style.borderColor = '#bdbdbd';
+                    input.style.boxShadow = 'none';
+                }
+            } else {
+                input.style.borderColor = '#bdbdbd';
+                input.style.boxShadow = 'none';
+            }
+        });
+        
+        // Validar OCUPACIÓN (OBLIGATORIO - debe seleccionar al menos una)
+        const ocupacionSection = Array.from(form.querySelectorAll('section')).find(s => 
+            s.querySelector('h3').textContent.includes('Ocupación')
+        );
+        if (ocupacionSection) {
+            const ocupacionCheckboxes = ocupacionSection.querySelectorAll('input[type="checkbox"]');
+            const algunaOcupacion = Array.from(ocupacionCheckboxes).some(cb => cb.checked);
+            if (!algunaOcupacion) {
+                missingFields.push('Debe seleccionar al menos una ocupación');
+            }
+        }
+        
+        if (missingFields.length > 0) {
+            // Mostrar alerta pequeña de validación
+            showValidationAlert(missingFields);
+            
+            // Scroll al primer campo con error
+            const firstError = form.querySelector('input[style*="border-color: #d32f2f"]');
+            if (firstError) {
+                setTimeout(() => {
+                    firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setTimeout(() => {
+                        firstError.focus();
+                    }, 300);
+                }, 100);
+            }
+            return;
+        }
+        
+        // Asegurar que todos los campos de laboratorio vacíos tengan valor 0 antes de enviar
+        laboratorioFields.forEach(fieldName => {
+            const input = form.querySelector(`input[name="${fieldName}"]`);
+            if (input && (!input.value || input.value.trim() === '' || isNaN(parseFloat(input.value)))) {
+                input.value = '0';
+            }
+        });
+        
+        const fd = new FormData(form);
+        fd.append('model', model);
+        
+        // Mostrar indicador de carga
+        const card = document.getElementById('resultCard');
+        card.style.display='block';
+        card.innerHTML = '<div class="loading">Procesando predicción...</div>';
+        
+        const res = await fetch("{{ url_for('predict_individual') }}", { method:'POST', body: fd });
+        const data = await res.json();
+        
+        if (!data.success){
+            card.style.display='block';
+            card.innerHTML = `<div class="error">${data.error || 'Error'}</div>`;
+            return;
+        }
+        
+        // Verificar que el modelo usado coincide con el seleccionado
+        const modelUsed = data.model_used || model;
+        const modelName = modelUsed === 'nn' ? 'Red Neuronal' : 'Regresión Logística';
+        const modelSelectedName = model === 'nn' ? 'Red Neuronal' : 'Regresión Logística';
+        
+        if (modelUsed !== model) {
+            console.warn(`Advertencia: Modelo seleccionado (${modelSelectedName}) no coincide con modelo usado (${modelName})`);
+        }
+        
+        card.style.display='block';
+        const p1 = (data.probabilities[1]*100).toFixed(1);
+        const p2 = (data.probabilities[2]*100).toFixed(1);
+        const p3 = (data.probabilities[3]*100).toFixed(1);
+        
+        // Mapeo de enfermedades con iconos y descripciones
+        const enfermedades = {
+            'Dengue': {
+                icon: '🦟',
+                descripcion: 'Enfermedad viral transmitida por mosquitos Aedes',
+                color: '#ef5350',
+                bgColor: '#ffebee'
+            },
+            'Malaria': {
+                icon: '🩸',
+                descripcion: 'Enfermedad parasitaria transmitida por mosquitos Anopheles',
+                color: '#42a5f5',
+                bgColor: '#e3f2fd'
+            },
+            'Leptospirosis': {
+                icon: '🐀',
+                descripcion: 'Infección bacteriana por contacto con agua/suelo contaminado',
+                color: '#66bb6a',
+                bgColor: '#e8f5e9'
+            }
+        };
+        
+        const enfermedad = enfermedades[data.diagnosis_label] || {
+            icon: '🏥',
+            descripcion: 'Diagnóstico médico',
+            color: '#0288d1',
+            bgColor: '#e3f2fd'
+        };
+        
+        // Determinar la probabilidad más alta
+        const probMax = Math.max(p1, p2, p3);
+        const confianza = probMax >= 70 ? 'alta' : probMax >= 50 ? 'media' : 'baja';
+        
+        card.innerHTML = `
+            <div class="prediction-result">
+                <div class="diagnosis-main" style="background: linear-gradient(135deg, ${enfermedad.color} 0%, ${enfermedad.color}dd 100%); padding: 32px; border-radius: 12px; margin-bottom: 24px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); text-align: center;">
+                    <div style="font-size: 4rem; margin-bottom: 16px;">${enfermedad.icon}</div>
+                    <h2 style="color: white; font-size: 2rem; margin-bottom: 12px; font-weight: 700; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                        ${data.diagnosis_label}
+                    </h2>
+                    <p style="color: rgba(255,255,255,0.95); font-size: 1rem; margin-bottom: 16px; max-width: 600px; margin-left: auto; margin-right: auto;">
+                        ${enfermedad.descripcion}
+                    </p>
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 20px;">
+                        <div class="badge" style="background: rgba(255,255,255,0.25); color: white; padding: 8px 16px; border-radius: 20px; font-weight: 600; backdrop-filter: blur(10px);">
+                            Confianza: ${probMax}%
+                        </div>
+                        <div class="badge" style="background: rgba(255,255,255,0.25); color: white; padding: 8px 16px; border-radius: 20px; font-weight: 600; backdrop-filter: blur(10px);">
+                            ${modelName}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="probabilities" style="background: white; padding: 24px; border-radius: 12px; border: 1px solid #e0e0e0; margin-bottom: 20px;">
+                    <h5 style="color: #424242; margin-bottom: 20px; font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-chart-bar" style="color: #0288d1;"></i> Probabilidades por Enfermedad
+                    </h5>
+                    <div class="prob-bars">
+                        <div class="prob-bar" style="margin-bottom: 16px;">
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 140px;">
+                                <span style="font-size: 1.2rem;">🦟</span>
+                                <span style="font-weight: 600; color: #424242;">Dengue</span>
+                            </div>
+                            <div class="bar" style="flex: 1; height: 28px; background: #f5f5f5; border-radius: 14px; overflow: hidden; position: relative;">
+                                <div class="fill" style="width:${p1}%; height: 100%; background: linear-gradient(90deg, #ef5350, #e53935); transition: width 0.8s ease; border-radius: 14px;"></div>
+                                <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: 700; color: ${parseFloat(p1) > 50 ? 'white' : '#424242'}; font-size: 0.9rem; z-index: 1;">${p1}%</span>
+                            </div>
+                        </div>
+                        <div class="prob-bar" style="margin-bottom: 16px;">
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 140px;">
+                                <span style="font-size: 1.2rem;">🩸</span>
+                                <span style="font-weight: 600; color: #424242;">Malaria</span>
+                            </div>
+                            <div class="bar" style="flex: 1; height: 28px; background: #f5f5f5; border-radius: 14px; overflow: hidden; position: relative;">
+                                <div class="fill" style="width:${p2}%; height: 100%; background: linear-gradient(90deg, #42a5f5, #1e88e5); transition: width 0.8s ease; border-radius: 14px;"></div>
+                                <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: 700; color: ${parseFloat(p2) > 50 ? 'white' : '#424242'}; font-size: 0.9rem; z-index: 1;">${p2}%</span>
+                            </div>
+                        </div>
+                        <div class="prob-bar">
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 140px;">
+                                <span style="font-size: 1.2rem;">🐀</span>
+                                <span style="font-weight: 600; color: #424242;">Leptospirosis</span>
+                            </div>
+                            <div class="bar" style="flex: 1; height: 28px; background: #f5f5f5; border-radius: 14px; overflow: hidden; position: relative;">
+                                <div class="fill" style="width:${p3}%; height: 100%; background: linear-gradient(90deg, #66bb6a, #43a047); transition: width 0.8s ease; border-radius: 14px;"></div>
+                                <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: 700; color: ${parseFloat(p3) > 50 ? 'white' : '#424242'}; font-size: 0.9rem; z-index: 1;">${p3}%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        
+        // Scroll suave al resultado después de mostrar el contenido
+        setTimeout(() => {
+            card.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'start',
+                inline: 'nearest'
+            });
+            
+            // Agregar animación de entrada suave
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(30px)';
+            card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+            
+            setTimeout(() => {
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, 50);
+        }, 400);
+    }
+
+    function showValidationAlert(errors) {
+        const alert = document.getElementById('validationAlert');
+        const messageSpan = document.getElementById('validationAlertMessage');
+        
+        // Crear mensaje resumido (máximo 3 errores principales)
+        const mainErrors = errors.slice(0, 3);
+        let message = mainErrors.join(', ');
+        if (errors.length > 3) {
+            message += ` y ${errors.length - 3} más`;
+        }
+        
+        messageSpan.textContent = message;
+        
+        // Mostrar alerta
+        alert.style.display = 'block';
+        
+        // Animación de entrada
+        setTimeout(() => {
+            alert.style.opacity = '1';
+            alert.style.transform = 'translateY(0)';
+        }, 10);
+        
+        // Auto-cerrar después de 8 segundos
+        setTimeout(() => {
+            closeValidationAlert();
+        }, 8000);
+    }
+    
+    function closeValidationAlert() {
+        const alert = document.getElementById('validationAlert');
+        alert.style.opacity = '0';
+        alert.style.transform = 'translateY(-20px)';
+        setTimeout(() => {
+            alert.style.display = 'none';
+        }, 300);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSchema();
+        document.getElementById('predictBtn').addEventListener('click', (e)=>{ e.preventDefault(); predict(); });
+    });
+    </script>
+</body>
+</html>

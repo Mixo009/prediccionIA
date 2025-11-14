@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Predicción por Lotes</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="topnav">
+                <div class="brand"><i class="fas fa-stethoscope"></i><span>DEMALE-HSJM</span></div>
+                <div class="nav-cta">
+                    <a href="{{ url_for('index') }}" class="btn btn-back" style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-arrow-left"></i> Volver a Inicio
+                    </a>
+                </div>
+            </div>
+            <div class="hero">
+                <h1><i class="fas fa-file-excel"></i> Predicción por Lotes</h1>
+                <p class="subtitle">Carga tu archivo (.xlsx o .csv) y pulsa Predecir</p>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div style="margin-bottom: 20px; text-align: left;">
+                <a href="{{ url_for('index') }}" class="btn btn-back" style="display: inline-flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-arrow-left"></i> Volver a Inicio
+                </a>
+            </div>
+            <div class="page-toolbar">
+                <label for="modelSelect">Modelo:</label>
+                <select id="modelSelect" class="btn btn-secondary">
+                    <option value="logistic">Regresión Logística</option>
+                    <option value="nn">Red Neuronal</option>
+                </select>
+            </div>
+
+            <section class="upload-section">
+                <div class="upload-card">
+                    <h3><i class="fas fa-upload"></i> Cargar archivo</h3>
+                    <div class="file-input-container">
+                        <input id="fileInput" type="file" accept=".xlsx,.csv" />
+                        <label for="fileInput" class="file-input-label"><i class="fas fa-file"></i> Seleccionar archivo (.xlsx / .csv)</label>
+                        <div id="fileInfo" class="file-info" style="display:none"></div>
+                    </div>
+                    <div class="upload-help">
+                        <h4><i class="fas fa-info-circle"></i> Requisitos del archivo</h4>
+                        <ul>
+                            <li>Columnas con las 55 variables predictoras. Valores binarios en 0/1 o Sí/No.</li>
+                            <li>Opcional: columna <code>diagnosis</code> para generar matriz de confusión y métricas.</li>
+                        </ul>
+                        <button id="predictBtn" class="btn btn-primary"><i class="fas fa-play"></i> Predecir</button>
+                    </div>
+                </div>
+            </section>
+
+            <div id="summaryCard" class="summary-card" style="display:none"></div>
+
+            <div id="confusionCard" class="matrix-card" style="display:none"></div>
+
+            <div id="metricsCard" class="metrics-card" style="display:none"></div>
+
+            <div id="resultsTable" class="table-card" style="display:none">
+                <h4><i class="fas fa-list"></i> Resultados Detallados</h4>
+                <div class="table-container">
+                <table id="predictionsTable">
+                    <thead>
+                        <tr>
+                            <th>Paciente</th>
+                            <th>Predicción</th>
+                            <th>Probabilidades</th>
+                            <th id="trueHeader" style="display:none">Verdadero</th>
+                            <th id="correctHeader" style="display:none">Correcto</th>
+                        </tr>
+                    </thead>
+                    <tbody id="predictionsBody"></tbody>
+                </table>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2025 Sistema de Predicción Médica</p>
+        </footer>
+    </div>
+
+    <script>
+    function diseaseName(c){ return ({1:'Dengue',2:'Malaria',3:'Leptospirosis'})[c] || `Clase ${c}`; }
+    async function predict(){
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+        const model = document.getElementById('modelSelect').value;
+        
+        // Validar que se seleccionó un archivo
+        if (!file){
+            alert('Por favor, selecciona un archivo .xlsx o .csv antes de predecir');
+            return;
+        }
+        
+        // Validar extensión del archivo
+        const fileName = file.name.toLowerCase();
+        if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls') && !fileName.endsWith('.csv')){
+            alert('Por favor, selecciona un archivo válido (.xlsx, .xls o .csv)');
+            return;
+        }
+        
+        // Mostrar indicador de carga
+        const summary = document.getElementById('summaryCard');
+        summary.style.display='block';
+        summary.innerHTML = '<div class="loading">Procesando archivo: ' + file.name + '...</div>';
+        
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('model', model);
+        
+        try {
+            const res = await fetch('{{ url_for('predict_batch') }}', { method:'POST', body: fd });
+            const data = await res.json();
+        
+            // Verificar modelo usado
+            const modelUsed = data.model_used || model;
+            const modelName = modelUsed === 'nn' ? 'Red Neuronal' : 'Regresión Logística';
+            
+            const summary = document.getElementById('summaryCard');
+            const confusion = document.getElementById('confusionCard');
+            const metrics = document.getElementById('metricsCard');
+            const table = document.getElementById('resultsTable');
+            const tbody = document.getElementById('predictionsBody');
+            
+            if (!data.success){
+                summary.style.display='block';
+                summary.innerHTML = `<div class="error"><i class="fas fa-exclamation-triangle"></i> ${data.error || 'Error al procesar el archivo'}</div>`;
+                confusion.style.display='none';
+                table.style.display='none';
+                return;
+            }
+            
+            summary.style.display='block';
+            
+            // Información de balanceo SMOTE
+            let smoteSection = '';
+            if (data.smote_info && data.smote_info.applied) {
+                const orig = data.smote_info.original_distribution;
+                const bal = data.smote_info.balanced_distribution;
+                const origTotal = data.smote_info.original_total;
+                const balTotal = data.smote_info.balanced_total;
+                
+                const diseaseLabels = {1: 'Dengue', 2: 'Malaria', 3: 'Leptospirosis'};
+                const diseaseIcons = {1: '🦟', 2: '🩸', 3: '🐀'};
+                const diseaseColors = {1: '#ef5350', 2: '#42a5f5', 3: '#66bb6a'};
+                
+                smoteSection = `
+                    <div style="margin-top: 20px; padding: 15px; background: linear-gradient(135deg, #e3f2fd 0%, #f5f5f5 100%); border-radius: 8px; border-left: 4px solid #0288d1;">
+                        <h5 style="margin: 0 0 12px 0; color: #0288d1; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-balance-scale"></i> Balanceo con SMOTE
+                            <span style="background: #4caf50; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; margin-left: auto;">ACTIVO</span>
+                        </h5>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 12px;">
+                            <div>
+                                <div style="font-size: 0.85em; color: #616161; margin-bottom: 8px; font-weight: 600;">📊 Dataset Original (Entrenamiento)</div>
+                                <div style="font-size: 0.9em; color: #424242; margin-bottom: 4px;"><strong>Total:</strong> ${origTotal} casos</div>
+                                ${[1,2,3].map(cls => {
+                                    const count = orig[cls] || 0;
+                                    const pct = origTotal > 0 ? ((count/origTotal)*100).toFixed(1) : 0;
+                                    const width = origTotal > 0 ? (count/origTotal)*100 : 0;
+                                    return `
+                                        <div style="margin: 6px 0; font-size: 0.85em;">
+                                            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px;">
+                                                <span>${diseaseIcons[cls]}</span>
+                                                <span style="font-weight: 600;">${diseaseLabels[cls]}:</span>
+                                                <span style="color: #616161;">${count} (${pct}%)</span>
+                                            </div>
+                                            <div style="height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;">
+                                                <div style="height: 100%; background: ${diseaseColors[cls]}; width: ${width}%; transition: width 0.3s;"></div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                            <div>
+                                <div style="font-size: 0.85em; color: #616161; margin-bottom: 8px; font-weight: 600;">⚖️ Dataset Balanceado con SMOTE</div>
+                                <div style="font-size: 0.9em; color: #424242; margin-bottom: 4px;"><strong>Total:</strong> ${balTotal} casos <span style="color: #4caf50; font-size: 0.9em;">(+${balTotal - origTotal} sintéticos)</span></div>
+                                ${[1,2,3].map(cls => {
+                                    const count = bal[cls] || 0;
+                                    const pct = balTotal > 0 ? ((count/balTotal)*100).toFixed(1) : 0;
+                                    const width = balTotal > 0 ? (count/balTotal)*100 : 0;
+                                    const isBalanced = Math.abs(width - 33.33) < 5;
+                                    return `
+                                        <div style="margin: 6px 0; font-size: 0.85em;">
+                                            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px;">
+                                                <span>${diseaseIcons[cls]}</span>
+                                                <span style="font-weight: 600;">${diseaseLabels[cls]}:</span>
+                                                <span style="color: #616161;">${count} (${pct}%)</span>
+                                                ${isBalanced ? '<span style="color: #4caf50; font-size: 0.8em;">✓</span>' : ''}
+                                            </div>
+                                            <div style="height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;">
+                                                <div style="height: 100%; background: ${diseaseColors[cls]}; width: ${width}%; transition: width 0.3s;"></div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                        <div style="margin-top: 12px; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 6px; font-size: 0.8em; color: #616161;">
+                            <strong style="color: #0288d1;">ℹ️ Nota:</strong> El modelo fue entrenado con datos balanceados usando SMOTE (${balTotal - origTotal} casos sintéticos generados). La matriz de confusión muestra resultados en datos reales del archivo cargado.
+                        </div>
+                    </div>
+                `;
+            }
+            
+            summary.innerHTML = `
+                <h4><i class="fas fa-chart-line"></i> Resumen del Análisis</h4>
+                <div class="summary-stats">
+                    <div class="stat"><span class="stat-number">${data.total_predictions}</span><span class="stat-label">Predicciones</span></div>
+                    ${data.evaluation ? `<div class=\"stat\"><span class=\"stat-number\">${(data.evaluation.accuracy*100).toFixed(1)}%</span><span class=\"stat-label\">Accuracy</span></div>` : ''}
+                    ${data.evaluation ? `<div class=\"stat\"><span class=\"stat-number\">${(data.evaluation.balanced_accuracy*100).toFixed(1)}%</span><span class=\"stat-label\">Balanced Acc.</span></div>` : ''}
+                    <div class="stat"><span class="stat-number">${modelName}</span><span class="stat-label">Modelo</span></div>
+                </div>
+                ${smoteSection}
+            `;
+
+            // Función helper para generar una matriz de confusión
+            const generateConfusionMatrix = (matrix, title, subtitle, isBalanced = false) => {
+                if (!matrix) return '';
+                const labels = ['Dengue','Malaria','Leptospirosis'];
+                const flatValues = matrix.flat();
+                const maxValue = Math.max(...flatValues, 1);
+                const heatColor = (v) => {
+                    const alpha = 0.15 + 0.75*(v/(maxValue||1));
+                    return `rgba(29,78,216,${alpha.toFixed(3)})`;
+                };
+                
+                const rows = [0,1,2].map(i => {
+                    const tds = [0,1,2].map(j => {
+                        const vAbs = matrix[i][j];
+                        const bg = heatColor(vAbs);
+                        const textColor = (vAbs/(maxValue||1)) > 0.55 ? '#fff' : '#0f172a';
+                        return `<td style="background:${bg}; color:${textColor};">
+                            <div style="font-weight: 600; font-size: 1.1em;">${vAbs}</div>
+                        </td>`;
+                    }).join('');
+                    return `<tr><th>${labels[i]}</th>${tds}</tr>`;
+                }).join('');
+                
+                const rowTotals = matrix.map(row => row.reduce((a, b) => a + b, 0));
+                const badgeColor = isBalanced ? '#4caf50' : '#0288d1';
+                const badgeText = isBalanced ? 'BALANCEADA' : 'DATOS REALES';
+                
+                return `
+                    <div style="flex: 1; min-width: 300px;">
+                        <h4 style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-table"></i> ${title}
+                            <span style="font-size: 0.7em; background: ${badgeColor}; color: white; padding: 2px 8px; border-radius: 12px; margin-left: auto;">${badgeText}</span>
+                        </h4>
+                        <div class="matrix-container">
+                            <table class="heatmap-table">
+                                <thead>
+                                    <tr><th></th><th colspan="3">Predicción</th></tr>
+                                    <tr><th>Verdadero</th><th>${labels[0]}</th><th>${labels[1]}</th><th>${labels[2]}</th></tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                            <div style="margin-top: 12px; padding: 10px; background: #f5f5f5; border-radius: 6px; font-size: 0.875rem; color: #616161;">
+                                <strong style="color: #0288d1;">ℹ️ ${subtitle}</strong>
+                                ${rowTotals.length > 0 ? `<br><strong>Distribución:</strong> ${labels.map((l, i) => `${l}: ${rowTotals[i]}`).join(', ')}` : ''}
+                            </div>
+                            <div class="heatmap-legend" aria-label="Leyenda intensidad">
+                                <span>Bajo</span>
+                                <div class="legend-bar"></div>
+                                <span>Alto</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            };
+            
+            // Mostrar matrices de confusión
+            if (data.evaluation && data.evaluation.confusion_matrix){
+                confusion.style.display='block';
+                
+                const cmReal = data.evaluation.confusion_matrix;
+                const cmBalanced = data.confusion_matrix_balanced;
+                
+                let matricesHtml = '';
+                
+                if (cmBalanced && data.smote_info && data.smote_info.applied) {
+                    // Mostrar ambas matrices lado a lado
+                    matricesHtml = `
+                        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                            ${generateConfusionMatrix(
+                                cmReal, 
+                                'Matriz de Confusión', 
+                                'Datos Reales del Archivo',
+                                false
+                            )}
+                            ${generateConfusionMatrix(
+                                cmBalanced, 
+                                'Matriz de Confusión', 
+                                'Datos Balanceados con SMOTE',
+                                true
+                            )}
+                        </div>
+                        <div style="margin-top: 15px; padding: 12px; background: #e3f2fd; border-radius: 6px; font-size: 0.875rem; color: #1565c0; border-left: 4px solid #0288d1;">
+                            <strong style="color: #0288d1;">📊 Comparación:</strong> La matriz izquierda muestra resultados en <strong>datos reales</strong> del archivo (distribución original). La matriz derecha muestra resultados en <strong>datos balanceados</strong> con SMOTE (${data.smote_info.balanced_total} casos: ${data.smote_info.balanced_distribution[1] || 0} Dengue, ${data.smote_info.balanced_distribution[2] || 0} Malaria, ${data.smote_info.balanced_distribution[3] || 0} Leptospirosis).
+                        </div>
+                    `;
+                } else {
+                    // Mostrar solo la matriz real
+                    matricesHtml = generateConfusionMatrix(
+                        cmReal, 
+                        'Matriz de Confusión', 
+                        'Datos Reales del Archivo',
+                        false
+                    );
+                }
+                
+                confusion.innerHTML = matricesHtml;
+            } else {
+                confusion.style.display='none';
+            }
+
+            // Métricas de evaluación por clase y exactitud global
+            if (data.evaluation && data.evaluation.classification_report) {
+                const report = data.evaluation.classification_report;
+                const labels = ['Dengue', 'Malaria', 'Leptospirosis'];
+                const classIds = ['1', '2', '3'];
+                
+                // Extraer métricas por clase
+                const metricsRows = classIds.map((id, idx) => {
+                    const classData = report[id];
+                    if (classData) {
+                        // Colores para cada enfermedad
+                        const diseaseColors = {
+                            'Dengue': { bg: '#ffebee', border: '#ef5350', icon: '🦟' },
+                            'Malaria': { bg: '#e3f2fd', border: '#42a5f5', icon: '🩸' },
+                            'Leptospirosis': { bg: '#e8f5e9', border: '#66bb6a', icon: '🐀' }
+                        };
+                        const color = diseaseColors[labels[idx]] || { bg: '#f5f5f5', border: '#9e9e9e', icon: '🏥' };
+                        
+                        return `
+                            <tr style="border-bottom: 1px solid #e0e0e0; transition: background 0.2s;">
+                                <td style="padding: 14px; font-weight: 600; color: #424242;">
+                                    <span style="font-size: 1.2rem; margin-right: 8px;">${color.icon}</span>
+                                    <strong>${labels[idx]}</strong>
+                                </td>
+                                <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${(classData.precision * 100).toFixed(1)}%</td>
+                                <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${(classData.recall * 100).toFixed(1)}%</td>
+                                <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${(classData['f1-score'] * 100).toFixed(1)}%</td>
+                                <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${classData.support}</td>
+                            </tr>
+                        `;
+                    }
+                    return '';
+                }).join('');
+                
+                // Métricas globales
+                const macroAvg = report['macro avg'];
+                const weightedAvg = report['weighted avg'];
+                
+                metrics.style.display='block';
+                metrics.innerHTML = `
+                    <h4><i class="fas fa-chart-bar"></i> Métricas de Evaluación</h4>
+                    
+                    <div style="background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); padding: 24px; border-radius: 12px; margin-bottom: 24px; border-left: 5px solid #0288d1; box-shadow: 0 4px 12px rgba(2, 136, 209, 0.15);">
+                        <h5 style="color: #01579b; margin-bottom: 20px; font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-bullseye" style="font-size: 1.2rem;"></i> Exactitud Global
+                        </h5>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px;">
+                            <div style="background: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: transform 0.2s;">
+                                <div style="font-size: 2.5rem; font-weight: 700; color: #0288d1; margin-bottom: 8px; line-height: 1;">${(data.evaluation.accuracy * 100).toFixed(1)}%</div>
+                                <div style="color: #616161; font-size: 0.9rem; font-weight: 500;">Accuracy</div>
+                                <div style="color: #9e9e9e; font-size: 0.75rem; margin-top: 4px;">(Precisión Global)</div>
+                            </div>
+                            <div style="background: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: transform 0.2s;">
+                                <div style="font-size: 2.5rem; font-weight: 700; color: #0288d1; margin-bottom: 8px; line-height: 1;">${(data.evaluation.balanced_accuracy * 100).toFixed(1)}%</div>
+                                <div style="color: #616161; font-size: 0.9rem; font-weight: 500;">Balanced Accuracy</div>
+                                <div style="color: #9e9e9e; font-size: 0.75rem; margin-top: 4px;">(Precisión Balanceada)</div>
+                            </div>
+                            <div style="background: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: transform 0.2s;">
+                                <div style="font-size: 2.5rem; font-weight: 700; color: #0288d1; margin-bottom: 8px; line-height: 1;">${data.total_predictions}</div>
+                                <div style="color: #616161; font-size: 0.9rem; font-weight: 500;">Total de Predicciones</div>
+                                <div style="color: #9e9e9e; font-size: 0.75rem; margin-top: 4px;">(Pacientes procesados)</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h5 style="color: #424242; margin-bottom: 16px; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-list" style="color: #0288d1;"></i> Métricas por Clase
+                    </h5>
+                    <div style="overflow-x: auto; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                        <table style="width: 100%; border-collapse: collapse; background: white;">
+                            <thead>
+                                <tr style="background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);">
+                                    <th style="padding: 16px; text-align: left; border-bottom: 2px solid #0288d1; font-weight: 600; color: #424242; font-size: 0.95rem;">Enfermedad</th>
+                                    <th style="padding: 16px; text-align: center; border-bottom: 2px solid #0288d1; font-weight: 600; color: #424242; font-size: 0.95rem;">Precision</th>
+                                    <th style="padding: 16px; text-align: center; border-bottom: 2px solid #0288d1; font-weight: 600; color: #424242; font-size: 0.95rem;">Recall</th>
+                                    <th style="padding: 16px; text-align: center; border-bottom: 2px solid #0288d1; font-weight: 600; color: #424242; font-size: 0.95rem;">F1-Score</th>
+                                    <th style="padding: 16px; text-align: center; border-bottom: 2px solid #0288d1; font-weight: 600; color: #424242; font-size: 0.95rem;">Support</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${metricsRows}
+                                <tr style="background: #f8f9fa; border-top: 3px solid #0288d1;">
+                                    <td style="padding: 14px; font-weight: 700; color: #0288d1; font-size: 0.95rem;">Promedio Macro</td>
+                                    <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${macroAvg ? (macroAvg.precision * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${macroAvg ? (macroAvg.recall * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${macroAvg ? (macroAvg['f1-score'] * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${macroAvg ? macroAvg.support : '-'}</td>
+                                </tr>
+                                <tr style="background: #f8f9fa;">
+                                    <td style="padding: 14px; font-weight: 700; color: #0288d1; font-size: 0.95rem;">Promedio Ponderado</td>
+                                    <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${weightedAvg ? (weightedAvg.precision * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${weightedAvg ? (weightedAvg.recall * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${weightedAvg ? (weightedAvg['f1-score'] * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td style="padding: 14px; text-align: center; color: #616161; font-weight: 600;">${weightedAvg ? weightedAvg.support : '-'}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top: 20px; padding: 16px; background: linear-gradient(135deg, #f5f5f5 0%, #fafafa 100%); border-radius: 8px; border-left: 4px solid #0288d1; font-size: 0.875rem; color: #616161;">
+                        <strong style="color: #0288d1; display: block; margin-bottom: 10px; font-size: 0.9rem;"><i class="fas fa-info-circle"></i> Explicación de Métricas</strong> 
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin-top: 8px;">
+                            <div style="padding: 8px 0;">
+                                <strong style="color: #424242;">Precision:</strong> 
+                                <span style="color: #757575;">De todas las predicciones de esta clase, ¿cuántas eran correctas?</span>
+                            </div>
+                            <div style="padding: 8px 0;">
+                                <strong style="color: #424242;">Recall:</strong> 
+                                <span style="color: #757575;">De todos los casos reales de esta clase, ¿cuántos detectó el modelo?</span>
+                            </div>
+                            <div style="padding: 8px 0;">
+                                <strong style="color: #424242;">F1-Score:</strong> 
+                                <span style="color: #757575;">Promedio armónico entre Precision y Recall</span>
+                            </div>
+                            <div style="padding: 8px 0;">
+                                <strong style="color: #424242;">Support:</strong> 
+                                <span style="color: #757575;">Número de casos reales de esta clase en el dataset</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                metrics.style.display='none';
+            }
+
+            // Results
+            table.style.display='block';
+            
+            // Mostrar/u ocultar columnas según si hay evaluación
+            if (data.evaluation) {
+                document.getElementById('trueHeader').style.display = 'table-cell';
+                document.getElementById('correctHeader').style.display = 'table-cell';
+            } else {
+                document.getElementById('trueHeader').style.display = 'none';
+                document.getElementById('correctHeader').style.display = 'none';
+            }
+            
+            tbody.innerHTML = data.results.map(r => `
+                <tr>
+                    <td>Paciente ${r.row}</td>
+                    <td><span class="diagnosis-badge class-${r.diagnosis}">${r.diagnosis_label}</span></td>
+                    <td>Dengue: ${(r.probabilities[1]*100).toFixed(1)}%, Malaria: ${(r.probabilities[2]*100).toFixed(1)}%, Leptospirosis: ${(r.probabilities[3]*100).toFixed(1)}%</td>
+                    ${data.evaluation?`<td>${diseaseName(r.true_diagnosis)}</td><td>${r.correct?'<i class=\'fas fa-check text-success\'></i>':'<i class=\'fas fa-times text-error\'></i>'}</td>`:''}
+                </tr>`).join('');
+        } catch (error) {
+            console.error('Error al procesar archivo:', error);
+            const summary = document.getElementById('summaryCard');
+            summary.style.display='block';
+            summary.innerHTML = `<div class="error"><i class="fas fa-exclamation-triangle"></i> Error al procesar el archivo: ${error.message || 'Error desconocido'}</div>`;
+            document.getElementById('confusionCard').style.display='none';
+            document.getElementById('metricsCard').style.display='none';
+            document.getElementById('resultsTable').style.display='none';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', ()=>{
+        document.getElementById('predictBtn').addEventListener('click', (e)=>{ e.preventDefault(); predict(); });
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files[0]){
+                fileInfo.style.display='block';
+                fileInfo.textContent = `Archivo seleccionado: ${fileInput.files[0].name}`;
+            } else {
+                fileInfo.style.display='none';
+                fileInfo.textContent = '';
+            }
+        });
+    });
+    </script>
+</body>
+</html>

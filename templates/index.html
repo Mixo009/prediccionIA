@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Predicción de Diagnóstico Médico</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="topnav">
+                <div class="brand">
+                    <i class="fas fa-stethoscope"></i>
+                    <span>DEMALE-HSJM</span>
+                </div>
+                <div class="nav-cta">
+                    <button id="startBtn" class="btn btn-primary">Comenzar</button>
+                </div>
+            </div>
+            <div class="hero">
+                <h1><i class="fas fa-stethoscope"></i> Sistema de Predicción de Diagnóstico Médico</h1>
+                <p class="subtitle">Seleccione modalidad y modelo para iniciar la predicción</p>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <section class="hero-banner">
+                <div class="hero-bg"></div>
+                <div class="hero-card">
+                    <h2>DiagnosIA: predicción clínica confiable</h2>
+                    <p>
+                        Nuestra plataforma apoya el proceso diagnóstico analizando síntomas y exámenes de laboratorio mediante modelos avanzados de Inteligencia Artificial. Los resultados se basan en modelos de Regresión Logística y Redes Neuronales entrenados con datos clínicos verificados, ofreciendo precisión y confiabilidad tanto en modo individual como por lotes.
+                    </p>
+                    <div class="hero-actions"></div>
+                </div>
+            </section>
+
+            <section class="prediction-modes">
+                <div class="mode-card individual-card">
+                    <div class="card-icon"><i class="fas fa-user-md"></i></div>
+                    <h2>Predicción Individual</h2>
+                    <p>Formulario con 55 variables para un paciente. Selecciona el modelo y obtén el diagnóstico.</p>
+                    <ul class="features-list">
+                        <li><i class="fas fa-check"></i> Selector de modelo</li>
+                        <li><i class="fas fa-check"></i> Validación visual de campos</li>
+                        <li><i class="fas fa-check"></i> Resultado con probabilidades</li>
+                    </ul>
+                </div>
+                <div class="mode-card batch-card">
+                    <div class="card-icon"><i class="fas fa-file-excel"></i></div>
+                    <h2>Predicción por Lotes</h2>
+                    <p>Carga archivo (.xlsx / .csv) y visualiza métricas, matriz de confusión y resultados detallados.</p>
+                    <ul class="features-list">
+                        <li><i class="fas fa-check"></i> Selector de modelo</li>
+                        <li><i class="fas fa-check"></i> Resumen con Accuracy y Balanced Acc.</li>
+                        <li><i class="fas fa-check"></i> Tabla de resultados por paciente</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Modal de selección Comenzar -->
+            <div id="startModal" class="modal-overlay hidden">
+                <div class="modal" role="dialog" aria-modal="true" aria-labelledby="startModalTitle">
+                    <header id="startModalTitle">Selecciona una opción</header>
+                    <div class="content">
+                        <a class="option opt-individual" href="{{ url_for('individual') }}">
+                            <span class="option-icon"><i class="fas fa-user-md"></i></span>
+                            <div class="option-content">
+                                <h4>Predicción individual</h4>
+                                <div class="subtitle">Formulario para un paciente</div>
+                            </div>
+                        </a>
+                        <a class="option opt-batch" href="{{ url_for('batch') }}">
+                            <span class="option-icon"><i class="fas fa-file-excel"></i></span>
+                            <div class="option-content">
+                                <h4>Predicción por lotes</h4>
+                                <div class="subtitle">Carga de archivo Excel/CSV</div>
+                            </div>
+                        </a>
+                    </div>
+                    <div class="actions">
+                        <button id="closeStartModal" class="btn btn-secondary">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-section">
+                <div class="info-card">
+                    <h3>🦠 Enfermedades que predice el modelo</h3>
+                    <div class="disease-grid">
+                        <div class="disease-card dengue">
+                            <div class="icon">🦟</div>
+                            <div>
+                                <h4>Dengue</h4>
+                                <p>Infección viral por mosquitos Aedes. Fiebre alta, cefalea y erupciones. El modelo usa marcadores clínicos y de laboratorio para su diferenciación.</p>
+                            </div>
+                        </div>
+                        <div class="disease-card malaria">
+                            <div class="icon">🩸</div>
+                            <div>
+                                <h4>Malaria</h4>
+                                <p>Enfermedad parasitaria por mosquitos Anopheles. Fiebre periódica, escalofríos y compromiso hematológico. Analizamos patrones clínicos para apoyar su detección.</p>
+                            </div>
+                        </div>
+                        <div class="disease-card lepto">
+                            <div class="icon">🧫</div>
+                            <div>
+                                <h4>Leptospirosis</h4>
+                                <p>Infección bacteriana por Leptospira asociada a agua/ suelo contaminado. Puede cursar con alteraciones hepatorrenales; se integra información clínica y analítica.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+        <!-- Modal disponible como alternativa de navegación -->
+
+        <script>
+            (function(){
+                const startBtn = document.getElementById('startBtn');
+                const modal = document.getElementById('startModal');
+                const closeBtn = document.getElementById('closeStartModal');
+                function open() { modal.classList.remove('hidden'); modal.style.display='flex'; }
+                function close() { modal.classList.add('hidden'); modal.style.display='none'; }
+                if (startBtn) startBtn.addEventListener('click', function(e){ e.preventDefault(); open(); });
+                if (closeBtn) closeBtn.addEventListener('click', function(){ close(); });
+                modal && modal.addEventListener('click', function(e){ if (e.target === modal) close(); });
+            })();
+        </script>
+
+        <footer class="footer">
+            <p>&copy; 2025 Sistema de Predicción Médica - Proyecto Final Analítica</p>
+        </footer>
+    </div>
+</body>
+</html>
