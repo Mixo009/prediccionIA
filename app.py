@@ -1,4 +1,4 @@
-import os
+    import os
 import json
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
@@ -142,9 +142,17 @@ def prepare_df(df):
 def init_models():
     data_path = os.path.join('data', 'DEMALE-HSJM_2025_data.xlsx')
     if not os.path.exists(data_path):
+        print(f'[ERROR] No se encontró el archivo de datos en: {os.path.abspath(data_path)}')
+        print(f'[ERROR] Directorio actual: {os.getcwd()}')
+        print(f'[ERROR] Archivos en data/: {os.listdir("data") if os.path.exists("data") else "Directorio data/ no existe"}')
         return
-    df = pd.read_excel(data_path)
+    try:
+        df = pd.read_excel(data_path)
+    except Exception as e:
+        print(f'[ERROR] No se pudo leer el archivo Excel: {str(e)}')
+        return
     if 'diagnosis' not in df.columns:
+        print(f'[ERROR] El archivo no contiene la columna "diagnosis". Columnas encontradas: {list(df.columns)}')
         return
     y = df['diagnosis'].astype(int)
     X = prepare_df(df.drop(columns=['diagnosis']))
@@ -270,6 +278,9 @@ def init_models():
         'original_total': len(X),
         'balanced_total': len(X_all_balanced_temp),
     }
+
+# Inicializar modelos al cargar la aplicación (se ejecuta siempre, incluso con gunicorn)
+init_models()
 
 @app.route('/')
 def index():
@@ -448,7 +459,7 @@ def predict_batch():
     )
 
 if __name__ == '__main__':
-    init_models()
+    # init_models() ya se ejecutó arriba, no es necesario llamarlo de nuevo
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_ENV') == 'development'
     app.run(host='0.0.0.0', port=port, debug=debug)
